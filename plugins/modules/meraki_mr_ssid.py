@@ -5,15 +5,16 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 from __future__ import absolute_import, division, print_function
+
 __metaclass__ = type
 
 ANSIBLE_METADATA = {
-    'metadata_version': '1.1',
-    'status': ['preview'],
-    'supported_by': 'community'
+    "metadata_version": "1.1",
+    "status": ["preview"],
+    "supported_by": "community",
 }
 
-DOCUMENTATION = r'''
+DOCUMENTATION = r"""
 ---
 module: meraki_mr_ssid
 short_description: Manage wireless SSIDs in the Meraki cloud
@@ -198,6 +199,18 @@ options:
         - List of walled garden ranges.
         type: list
         elements: str
+    dns_rewrite:
+        description:
+        - DNS servers rewrite settings.
+        suboptions:
+            enabled:
+                description:
+                - Boolean indicating whether or not DNS server rewrite is enabled. If disabled, upstream DNS will be used.
+                type: bool
+            dns_custom_nameservers:
+                description:
+                - User specified DNS servers (up to two servers).
+                type: list
     min_bitrate:
         description:
         - Minimum bitrate (Mbps) allowed on SSID.
@@ -220,12 +233,74 @@ options:
         description:
         - The concentrator to use for 'Layer 3 roaming with a concentrator' or 'VPN'.
         type: str
+    available_on_all_aps:
+        description:
+        - Boolean indicating whether all APs should broadcast the SSID or if it should be restricted to APs matching any availability tags. Can only be false if the SSID has availability tags.
+        type: bool
+    availability_tags:
+        description:
+        - Accepts a list of tags for this SSID. If available_on_all_aps is false, then the SSID will only be broadcast by APs with tags matching any of the tags in this list.
+        type: list
+        elements: str
+    dot11r:
+        description:
+        - The current setting for 802.11r.
+        type: dict
+        suboptions:
+            adaptive:
+                description:
+                - Whether 802.11r is adaptive or not.
+                type: bool
+                required: false
+            enabled:
+                description:
+                - Whether 802.11r is enabled or not.
+                type: bool
+    dot11w:
+        description:
+        - The current setting for Protected Management Frames (802.11w).
+        type: list
+        elements: dict
+        suboptions:
+            enabled:
+                description:
+                - Whether 802.11w is enabled or not.
+                type: bool
+            required:
+                description:
+                - Whether 802.11w is required or not.
+                type: bool
+                required: false
+    lan_isolation_enabled:
+        description:
+        - Boolean indicating whether Layer 2 LAN isolation should be enabled or disabled. Only configurable when ipAssignmentMode is 'Bridge mode'.
+        type: bool
+    mandatory_dhcp_enabled:
+        description:
+        - If true, Mandatory DHCP will enforce that clients connecting to this SSID must use the IP address assigned by the DHCP server. Clients who use a static IP address won't be able to associate.
+        type: bool
+    per_ssid_bandwidth_limit_down:
+        description:
+        - The total download bandwidth limit in Kbps. (0 represents no limit.)
+        type: int
+    per_ssid_bandwidth_limit_up:
+        description:
+        - The total upload bandwidth limit in Kbps. (0 represents no limit.)
+        type: int
+    visible:
+        description:
+        - Boolean indicating whether APs should advertise or hide this SSID. APs will only broadcast this SSID if set to true.
+        type: bool
+    adult_content_filtering_enabled:
+        description:
+        - Boolean indicating whether or not adult content will be blocked.
+        type: bool
 author:
 - Kevin Breit (@kbreit)
 extends_documentation_fragment: cisco.meraki.meraki
-'''
+"""
 
-EXAMPLES = r'''
+EXAMPLES = r"""
 - name: Enable and name SSID
   meraki_ssid:
     auth_key: abc123
@@ -272,9 +347,9 @@ EXAMPLES = r'''
     name: GuestSSID
     splash_page: Click-through splash page
   delegate_to: localhost
-'''
+"""
 
-RETURN = r'''
+RETURN = r"""
 data:
     description: List of wireless SSIDs.
     returned: success
@@ -352,70 +427,84 @@ data:
             returned: success
             type: int
             sample: 0
-'''
+"""
 
 from ansible.module_utils.basic import AnsibleModule, json
-from ansible_collections.cisco.meraki.plugins.module_utils.network.meraki.meraki import MerakiModule, meraki_argument_spec
+from ansible_collections.cisco.meraki.plugins.module_utils.network.meraki.meraki import (
+    MerakiModule,
+    meraki_argument_spec,
+)
 
 
 def get_available_number(data):
     for item in data:
-        if 'Unconfigured SSID' in item['name']:
-            return item['number']
+        if "Unconfigured SSID" in item["name"]:
+            return item["number"]
     return False
 
 
 def get_ssid_number(name, data):
     for ssid in data:
-        if name == ssid['name']:
-            return ssid['number']
+        if name == ssid["name"]:
+            return ssid["number"]
     return False
 
 
 def get_ssids(meraki, net_id):
-    path = meraki.construct_path('get_all', net_id=net_id)
-    return meraki.request(path, method='GET')
+    path = meraki.construct_path("get_all", net_id=net_id)
+    return meraki.request(path, method="GET")
 
 
 def construct_payload(meraki):
-    param_map = {'name': 'name',
-                 'enabled': 'enabled',
-                 'authMode': 'auth_mode',
-                 'encryptionMode': 'encryption_mode',
-                 'psk': 'psk',
-                 'wpaEncryptionMode': 'wpa_encryption_mode',
-                 'splashPage': 'splash_page',
-                 'radiusServers': 'radius_servers',
-                 'radiusProxyEnabled': 'radius_proxy_enabled',
-                 'radiusCoaEnabled': 'radius_coa_enabled',
-                 'radiusFailoverPolicy': 'radius_failover_policy',
-                 'radiusLoadBalancingPolicy': 'radius_load_balancing_policy',
-                 'radiusAccountingEnabled': 'radius_accounting_enabled',
-                 'radiusAccountingServers': 'radius_accounting_servers',
-                 'ipAssignmentMode': 'ip_assignment_mode',
-                 'useVlanTagging': 'use_vlan_tagging',
-                 'concentratorNetworkId': 'concentrator_network_id',
-                 'vlanId': 'vlan_id',
-                 'defaultVlanId': 'default_vlan_id',
-                 'apTagsAndVlanIds': 'ap_tags_vlan_ids',
-                 'walledGardenEnabled': 'walled_garden_enabled',
-                 'walledGardenRanges': 'walled_garden_ranges',
-                 'minBitrate': 'min_bitrate',
-                 'bandSelection': 'band_selection',
-                 'perClientBandwidthLimitUp': 'per_client_bandwidth_limit_up',
-                 'perClientBandwidthLimitDown': 'per_client_bandwidth_limit_down',
-                 }
+    param_map = {
+        "name": "name",
+        "enabled": "enabled",
+        "authMode": "auth_mode",
+        "encryptionMode": "encryption_mode",
+        "psk": "psk",
+        "wpaEncryptionMode": "wpa_encryption_mode",
+        "splashPage": "splash_page",
+        "radiusServers": "radius_servers",
+        "radiusProxyEnabled": "radius_proxy_enabled",
+        "radiusCoaEnabled": "radius_coa_enabled",
+        "radiusFailoverPolicy": "radius_failover_policy",
+        "radiusLoadBalancingPolicy": "radius_load_balancing_policy",
+        "radiusAccountingEnabled": "radius_accounting_enabled",
+        "radiusAccountingServers": "radius_accounting_servers",
+        "ipAssignmentMode": "ip_assignment_mode",
+        "useVlanTagging": "use_vlan_tagging",
+        "concentratorNetworkId": "concentrator_network_id",
+        "vlanId": "vlan_id",
+        "defaultVlanId": "default_vlan_id",
+        "apTagsAndVlanIds": "ap_tags_vlan_ids",
+        "walledGardenEnabled": "walled_garden_enabled",
+        "walledGardenRanges": "walled_garden_ranges",
+        "minBitrate": "min_bitrate",
+        "bandSelection": "band_selection",
+        "perClientBandwidthLimitUp": "per_client_bandwidth_limit_up",
+        "perClientBandwidthLimitDown": "per_client_bandwidth_limit_down",
+        "availableOnAllAps": "available_on_all_aps",
+        "availabilityTags": "availability_tags",
+        "dot11r": "dot11r",
+        "dot11w": "dot11w",
+        "lanIsolationEnabled": "lan_isolation_enabled",
+        "mandatoryDhcpEnabled": "mandatory_dhcp_enabled",
+        "perSsidBandwidthLimitDown": "per_ssid_bandwidth_limit_down",
+        "perSsidBandwidthLimitUp": "per_ssid_bandwidth_limit_up",
+        "visible": "visible",
+        "adultContentFilteringEnabled": "adult_content_filtering_enabled",
+    }
 
     payload = dict()
     for k, v in param_map.items():
         if meraki.params[v] is not None:
             payload[k] = meraki.params[v]
 
-    if meraki.params['ap_tags_vlan_ids'] is not None:
-        for i in payload['apTagsAndVlanIds']:
+    if meraki.params["ap_tags_vlan_ids"] is not None:
+        for i in payload["apTagsAndVlanIds"]:
             try:
-                i['vlanId'] = i['vlan_id']
-                del i['vlan_id']
+                i["vlanId"] = i["vlan_id"]
+                del i["vlan_id"]
             except KeyError:
                 pass
 
@@ -423,198 +512,285 @@ def construct_payload(meraki):
 
 
 def per_line_to_str(data):
-    return data.replace('\n', ' ')
+    return data.replace("\n", " ")
 
 
 def main():
-    default_payload = {'name': 'Unconfigured SSID',
-                       'auth_mode': 'open',
-                       'splashPage': 'None',
-                       'perClientBandwidthLimitUp': 0,
-                       'perClientBandwidthLimitDown': 0,
-                       'ipAssignmentMode': 'NAT mode',
-                       'enabled': False,
-                       'bandSelection': 'Dual band operation',
-                       'minBitrate': 11,
-                       }
+    default_payload = {
+        "name": "Unconfigured SSID",
+        "auth_mode": "open",
+        "splashPage": "None",
+        "perClientBandwidthLimitUp": 0,
+        "perClientBandwidthLimitDown": 0,
+        "ipAssignmentMode": "NAT mode",
+        "enabled": False,
+        "bandSelection": "Dual band operation",
+        "minBitrate": 11,
+    }
 
     # define the available arguments/parameters that a user can pass to
     # the module
-    radius_arg_spec = dict(host=dict(type='str', required=True),
-                           port=dict(type='int'),
-                           secret=dict(type='str', no_log=True),
-                           )
-    vlan_arg_spec = dict(tags=dict(type='list', elements='str'),
-                         vlan_id=dict(type='int'),
-                         )
+    radius_arg_spec = dict(
+        host=dict(type="str", required=True),
+        port=dict(type="int"),
+        secret=dict(type="str", no_log=True),
+    )
+    vlan_arg_spec = dict(
+        tags=dict(type="list", elements="str"),
+        vlan_id=dict(type="int"),
+    )
+    dns_rewrite_arg_spec = dict(
+        enabled=dict(type="bool"), dns_custom_nameservers=dict(type="list")
+    )
+    dot11r_arg_spec = dict(
+        adaptive=dict(type="bool", required=False),
+        enabled=dict(type="bool"),
+    )
+    dot11w_arg_spec = dict(
+        enabled=dict(type="bool"),
+        required=dict(type="bool", required=False),
+    )
 
     argument_spec = meraki_argument_spec()
-    argument_spec.update(state=dict(type='str', choices=['absent', 'present', 'query'], default='present'),
-                         number=dict(type='int', aliases=['ssid_number']),
-                         name=dict(type='str'),
-                         org_name=dict(type='str', aliases=['organization']),
-                         org_id=dict(type='str'),
-                         net_name=dict(type='str'),
-                         net_id=dict(type='str'),
-                         enabled=dict(type='bool'),
-                         auth_mode=dict(type='str', choices=['open', 'psk', 'open-with-radius', '8021x-meraki', '8021x-radius']),
-                         encryption_mode=dict(type='str', choices=['wpa', 'eap', 'wpa-eap']),
-                         psk=dict(type='str', no_log=True),
-                         wpa_encryption_mode=dict(type='str', choices=['WPA1 and WPA2',
-                                                                       'WPA2 only',
-                                                                       'WPA3 Transition Mode',
-                                                                       'WPA3 only']),
-                         splash_page=dict(type='str', choices=['None',
-                                                               'Click-through splash page',
-                                                               'Billing',
-                                                               'Password-protected with Meraki RADIUS',
-                                                               'Password-protected with custom RADIUS',
-                                                               'Password-protected with Active Directory',
-                                                               'Password-protected with LDAP',
-                                                               'SMS authentication',
-                                                               'Systems Manager Sentry',
-                                                               'Facebook Wi-Fi',
-                                                               'Google OAuth',
-                                                               'Sponsored guest',
-                                                               'Cisco ISE',
-                                                               ]),
-                         radius_servers=dict(type='list', default=None, elements='dict', options=radius_arg_spec),
-                         radius_proxy_enabled=dict(type='bool'),
-                         radius_coa_enabled=dict(type='bool'),
-                         radius_failover_policy=dict(type='str', choices=['Deny access', 'Allow access']),
-                         radius_load_balancing_policy=dict(type='str', choices=['Strict priority order', 'Round robin']),
-                         radius_accounting_enabled=dict(type='bool'),
-                         radius_accounting_servers=dict(type='list', elements='dict', options=radius_arg_spec),
-                         ip_assignment_mode=dict(type='str', choices=['NAT mode',
-                                                                      'Bridge mode',
-                                                                      'Layer 3 roaming',
-                                                                      'Layer 3 roaming with a concentrator',
-                                                                      'VPN']),
-                         use_vlan_tagging=dict(type='bool'),
-                         concentrator_network_id=dict(type='str'),
-                         vlan_id=dict(type='int'),
-                         default_vlan_id=dict(type='int'),
-                         ap_tags_vlan_ids=dict(type='list', default=None, elements='dict', options=vlan_arg_spec),
-                         walled_garden_enabled=dict(type='bool'),
-                         walled_garden_ranges=dict(type='list', elements='str'),
-                         min_bitrate=dict(type='float', choices=[1, 2, 5.5, 6, 9, 11, 12, 18, 24, 36, 48, 54]),
-                         band_selection=dict(type='str', choices=['Dual band operation',
-                                                                  '5 GHz band only',
-                                                                  'Dual band operation with Band Steering']),
-                         per_client_bandwidth_limit_up=dict(type='int'),
-                         per_client_bandwidth_limit_down=dict(type='int'),
-                         )
+    argument_spec.update(
+        state=dict(
+            type="str", choices=["absent", "present", "query"], default="present"
+        ),
+        number=dict(type="int", aliases=["ssid_number"]),
+        name=dict(type="str"),
+        org_name=dict(type="str", aliases=["organization"]),
+        org_id=dict(type="str"),
+        net_name=dict(type="str"),
+        net_id=dict(type="str"),
+        enabled=dict(type="bool"),
+        auth_mode=dict(
+            type="str",
+            choices=["open", "psk", "open-with-radius", "8021x-meraki", "8021x-radius"],
+        ),
+        encryption_mode=dict(type="str", choices=["wpa", "eap", "wpa-eap"]),
+        psk=dict(type="str", no_log=True),
+        wpa_encryption_mode=dict(
+            type="str",
+            choices=["WPA1 and WPA2", "WPA2 only", "WPA3 Transition Mode", "WPA3 only"],
+        ),
+        splash_page=dict(
+            type="str",
+            choices=[
+                "None",
+                "Click-through splash page",
+                "Billing",
+                "Password-protected with Meraki RADIUS",
+                "Password-protected with custom RADIUS",
+                "Password-protected with Active Directory",
+                "Password-protected with LDAP",
+                "SMS authentication",
+                "Systems Manager Sentry",
+                "Facebook Wi-Fi",
+                "Google OAuth",
+                "Sponsored guest",
+                "Cisco ISE",
+            ],
+        ),
+        radius_servers=dict(
+            type="list", default=None, elements="dict", options=radius_arg_spec
+        ),
+        radius_proxy_enabled=dict(type="bool"),
+        radius_coa_enabled=dict(type="bool"),
+        radius_failover_policy=dict(
+            type="str", choices=["Deny access", "Allow access"]
+        ),
+        radius_load_balancing_policy=dict(
+            type="str", choices=["Strict priority order", "Round robin"]
+        ),
+        radius_accounting_enabled=dict(type="bool"),
+        radius_accounting_servers=dict(
+            type="list", elements="dict", options=radius_arg_spec
+        ),
+        ip_assignment_mode=dict(
+            type="str",
+            choices=[
+                "NAT mode",
+                "Bridge mode",
+                "Layer 3 roaming",
+                "Layer 3 roaming with a concentrator",
+                "VPN",
+            ],
+        ),
+        use_vlan_tagging=dict(type="bool"),
+        concentrator_network_id=dict(type="str"),
+        vlan_id=dict(type="int"),
+        default_vlan_id=dict(type="int"),
+        ap_tags_vlan_ids=dict(
+            type="list", default=None, elements="dict", options=vlan_arg_spec
+        ),
+        walled_garden_enabled=dict(type="bool"),
+        walled_garden_ranges=dict(type="list", elements="str"),
+        dns_rewrite=dict(type="dict", default=None, options=dns_rewrite_arg_spec),
+        min_bitrate=dict(
+            type="float", choices=[1, 2, 5.5, 6, 9, 11, 12, 18, 24, 36, 48, 54]
+        ),
+        band_selection=dict(
+            type="str",
+            choices=[
+                "Dual band operation",
+                "5 GHz band only",
+                "Dual band operation with Band Steering",
+            ],
+        ),
+        per_client_bandwidth_limit_up=dict(type="int"),
+        per_client_bandwidth_limit_down=dict(type="int"),
+        available_on_all_aps=dict(type="bool"),
+        availability_tags=dict(type="list", elements="str"),
+        dot11r=dict(type="dict", default=None, options=dot11r_arg_spec),
+        dot11w=dict(type="dict", default=None, options=dot11w_arg_spec),
+        lan_isolation_enabled=dict(type="bool"),
+        mandatory_dhcp_enabled=dict(type="bool"),
+        per_ssid_bandwidth_limit_up=dict(type="int"),
+        per_ssid_bandwidth_limit_down=dict(type="int"),
+        visible=dict(type="bool"),
+        adult_content_filtering_enabled=dict(type="bool"),
+    )
 
     # the AnsibleModule object will be our abstraction working with Ansible
     # this includes instantiation, a couple of common attr would be the
     # args/params passed to the execution, as well as if the module
     # supports check mode
-    module = AnsibleModule(argument_spec=argument_spec,
-                           supports_check_mode=True,
-                           )
-    meraki = MerakiModule(module, function='ssid')
-    meraki.params['follow_redirects'] = 'all'
+    module = AnsibleModule(
+        argument_spec=argument_spec,
+        supports_check_mode=True,
+    )
+    meraki = MerakiModule(module, function="ssid")
+    meraki.params["follow_redirects"] = "all"
 
-    query_urls = {'ssid': '/networks/{net_id}/wireless/ssids'}
-    query_url = {'ssid': '/networks/{net_id}/wireless/ssids/{number}'}
-    update_url = {'ssid': '/networks/{net_id}/wireless/ssids/'}
+    query_urls = {"ssid": "/networks/{net_id}/wireless/ssids"}
+    query_url = {"ssid": "/networks/{net_id}/wireless/ssids/{number}"}
+    update_url = {"ssid": "/networks/{net_id}/wireless/ssids/"}
 
-    meraki.url_catalog['get_all'].update(query_urls)
-    meraki.url_catalog['get_one'].update(query_url)
-    meraki.url_catalog['update'] = update_url
+    meraki.url_catalog["get_all"].update(query_urls)
+    meraki.url_catalog["get_one"].update(query_url)
+    meraki.url_catalog["update"] = update_url
 
     payload = None
 
     # execute checks for argument completeness
-    if meraki.params['psk']:
-        if meraki.params['auth_mode'] != 'psk':
-            meraki.fail_json(msg='PSK is only allowed when auth_mode is set to psk')
-        if meraki.params['encryption_mode'] != 'wpa':
-            meraki.fail_json(msg='PSK requires encryption_mode be set to wpa')
-    if meraki.params['radius_servers']:
-        if meraki.params['auth_mode'] not in ('open-with-radius', '8021x-radius'):
-            meraki.fail_json(msg='radius_servers requires auth_mode to be open-with-radius or 8021x-radius')
-    if meraki.params['radius_accounting_enabled'] is True:
-        if meraki.params['auth_mode'] not in ('open-with-radius', '8021x-radius'):
-            meraki.fails_json(msg='radius_accounting_enabled is only allowed when auth_mode is open-with-radius or 8021x-radius')
-    if meraki.params['radius_accounting_servers'] is True:
-        if meraki.params['auth_mode'] not in ('open-with-radius', '8021x-radius') or meraki.params['radius_accounting_enabled'] is False:
-            meraki.fail_json(msg='radius_accounting_servers is only allowed when auth_mode is open_with_radius or 8021x-radius and \
-                radius_accounting_enabled is true')
-    if meraki.params['use_vlan_tagging'] is True:
-        if meraki.params['default_vlan_id'] is None:
-            meraki.fail_json(msg="default_vlan_id is required when use_vlan_tagging is True")
+    if meraki.params["psk"]:
+        if meraki.params["auth_mode"] != "psk":
+            meraki.fail_json(msg="PSK is only allowed when auth_mode is set to psk")
+        if meraki.params["encryption_mode"] != "wpa":
+            meraki.fail_json(msg="PSK requires encryption_mode be set to wpa")
+    if meraki.params["radius_servers"]:
+        if meraki.params["auth_mode"] not in ("open-with-radius", "8021x-radius"):
+            meraki.fail_json(
+                msg="radius_servers requires auth_mode to be open-with-radius or 8021x-radius"
+            )
+    if meraki.params["radius_accounting_enabled"] is True:
+        if meraki.params["auth_mode"] not in ("open-with-radius", "8021x-radius"):
+            meraki.fails_json(
+                msg="radius_accounting_enabled is only allowed when auth_mode is open-with-radius or 8021x-radius"
+            )
+    if meraki.params["radius_accounting_servers"] is True:
+        if (
+            meraki.params["auth_mode"] not in ("open-with-radius", "8021x-radius")
+            or meraki.params["radius_accounting_enabled"] is False
+        ):
+            meraki.fail_json(
+                msg="radius_accounting_servers is only allowed when auth_mode is open_with_radius or 8021x-radius and \
+                radius_accounting_enabled is true"
+            )
+    if meraki.params["use_vlan_tagging"] is True:
+        if meraki.params["default_vlan_id"] is None:
+            meraki.fail_json(
+                msg="default_vlan_id is required when use_vlan_tagging is True"
+            )
+    if meraki.params["available_on_all_aps"] is False:
+        if meraki.params["availability_tags"] is None:
+            meraki.fail_json(
+                msg="availability_tags are required when available_on_all_aps is False"
+            )
+    if meraki.params["lan_isolation_enabled"] is True:
+        if meraki.params["ip_assignment_mode"] != "Bridge mode":
+            meraki.fail_json(
+                msg="lan_isolation_enabled requires ip_assignment_mode to be 'Bridge mode'"
+            )
 
     # manipulate or modify the state as needed (this is going to be the
     # part where your module will do what it needs to do)
-    org_id = meraki.params['org_id']
-    net_id = meraki.params['net_id']
+    org_id = meraki.params["org_id"]
+    net_id = meraki.params["net_id"]
     if org_id is None:
-        org_id = meraki.get_org_id(meraki.params['org_name'])
+        org_id = meraki.get_org_id(meraki.params["org_name"])
     if net_id is None:
         nets = meraki.get_nets(org_id=org_id)
-        net_id = meraki.get_net_id(org_id, meraki.params['net_name'], data=nets)
+        net_id = meraki.get_net_id(org_id, meraki.params["net_name"], data=nets)
 
-    if meraki.params['state'] == 'query':
-        if meraki.params['name']:
-            ssid_id = get_ssid_number(meraki.params['name'], get_ssids(meraki, net_id))
-            path = meraki.construct_path('get_one', net_id=net_id, custom={'number': ssid_id})
-            meraki.result['data'] = meraki.request(path, method='GET')
-        elif meraki.params['number'] is not None:
-            path = meraki.construct_path('get_one', net_id=net_id, custom={'number': meraki.params['number']})
-            meraki.result['data'] = meraki.request(path, method='GET')
+    if meraki.params["state"] == "query":
+        if meraki.params["name"]:
+            ssid_id = get_ssid_number(meraki.params["name"], get_ssids(meraki, net_id))
+            path = meraki.construct_path(
+                "get_one", net_id=net_id, custom={"number": ssid_id}
+            )
+            meraki.result["data"] = meraki.request(path, method="GET")
+        elif meraki.params["number"] is not None:
+            path = meraki.construct_path(
+                "get_one", net_id=net_id, custom={"number": meraki.params["number"]}
+            )
+            meraki.result["data"] = meraki.request(path, method="GET")
         else:
-            meraki.result['data'] = get_ssids(meraki, net_id)
-    elif meraki.params['state'] == 'present':
+            meraki.result["data"] = get_ssids(meraki, net_id)
+    elif meraki.params["state"] == "present":
         payload = construct_payload(meraki)
         ssids = get_ssids(meraki, net_id)
-        number = meraki.params['number']
+        number = meraki.params["number"]
         if number is None:
-            number = get_ssid_number(meraki.params['name'], ssids)
+            number = get_ssid_number(meraki.params["name"], ssids)
         original = ssids[number]
-        if meraki.is_update_required(original, payload, optional_ignore=['secret']):
-            ssid_id = meraki.params['number']
+        if meraki.is_update_required(original, payload, optional_ignore=["secret"]):
+            ssid_id = meraki.params["number"]
             if ssid_id is None:  # Name should be used to lookup number
-                ssid_id = get_ssid_number(meraki.params['name'], ssids)
+                ssid_id = get_ssid_number(meraki.params["name"], ssids)
                 if ssid_id is False:
                     ssid_id = get_available_number(ssids)
                     if ssid_id is False:
-                        meraki.fail_json(msg='No unconfigured SSIDs are available. Specify a number.')
+                        meraki.fail_json(
+                            msg="No unconfigured SSIDs are available. Specify a number."
+                        )
             if meraki.check_mode is True:
                 original.update(payload)
-                meraki.result['data'] = original
-                meraki.result['changed'] = True
+                meraki.result["data"] = original
+                meraki.result["changed"] = True
                 meraki.exit_json(**meraki.result)
-            path = meraki.construct_path('update', net_id=net_id) + str(ssid_id)
-            result = meraki.request(path, 'PUT', payload=json.dumps(payload))
-            meraki.result['data'] = result
-            meraki.result['changed'] = True
+            path = meraki.construct_path("update", net_id=net_id) + str(ssid_id)
+            result = meraki.request(path, "PUT", payload=json.dumps(payload))
+            meraki.result["data"] = result
+            meraki.result["changed"] = True
         else:
-            meraki.result['data'] = original
-    elif meraki.params['state'] == 'absent':
+            meraki.result["data"] = original
+    elif meraki.params["state"] == "absent":
         ssids = get_ssids(meraki, net_id)
-        ssid_id = meraki.params['number']
+        ssid_id = meraki.params["number"]
         if ssid_id is None:  # Name should be used to lookup number
-            ssid_id = get_ssid_number(meraki.params['name'], ssids)
+            ssid_id = get_ssid_number(meraki.params["name"], ssids)
             if ssid_id is False:
                 ssid_id = get_available_number(ssids)
                 if ssid_id is False:
-                    meraki.fail_json(msg='No SSID found by specified name and no number was referenced.')
+                    meraki.fail_json(
+                        msg="No SSID found by specified name and no number was referenced."
+                    )
         if meraki.check_mode is True:
-            meraki.result['data'] = {}
-            meraki.result['changed'] = True
+            meraki.result["data"] = {}
+            meraki.result["changed"] = True
             meraki.exit_json(**meraki.result)
-        path = meraki.construct_path('update', net_id=net_id) + str(ssid_id)
+        path = meraki.construct_path("update", net_id=net_id) + str(ssid_id)
         payload = default_payload
-        payload['name'] = payload['name'] + ' ' + str(ssid_id + 1)
-        result = meraki.request(path, 'PUT', payload=json.dumps(payload))
-        meraki.result['data'] = result
-        meraki.result['changed'] = True
+        payload["name"] = payload["name"] + " " + str(ssid_id + 1)
+        result = meraki.request(path, "PUT", payload=json.dumps(payload))
+        meraki.result["data"] = result
+        meraki.result["changed"] = True
 
     # in the event of a successful module execution, you will want to
     # simple AnsibleModule.exit_json(), passing the key/value results
     meraki.exit_json(**meraki.result)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
